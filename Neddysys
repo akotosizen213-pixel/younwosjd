@@ -1,0 +1,865 @@
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local Lighting         = game:GetService("Lighting")
+local LocalPlayer      = Players.LocalPlayer
+
+-- ================================================
+-- SAFE GUI PARENT
+-- ================================================
+
+local function getParent()
+    if gethui then return gethui() end
+    if syn and syn.protect_gui then
+        local sg = Instance.new("ScreenGui")
+        syn.protect_gui(sg)
+        sg.Parent = game:GetService("CoreGui")
+        return sg
+    end
+    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
+    if ok then return cg end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- ================================================
+-- CONFIG
+-- ================================================
+
+local Cfg = {
+    AimEnabled   = false,
+    SilentAim    = false,
+    TeamCheck    = false,
+    WallCheck    = false,
+    HitPart      = "Head",
+    FOVEnabled   = false,
+    FOVRadius    = 150,
+    Prediction   = false,
+    PredAmt      = 0.15,
+    Smoothing    = 10,
+    MouseBind    = Enum.UserInputType.MouseButton2,
+    ESPEnabled   = false,
+    BodyHL       = true,
+    HLColor      = Color3.fromRGB(255, 255, 255),
+    HLOpacity    = 0.5,
+    ShowTeam     = false,
+    MaxDist      = 500,
+    NoClip       = false,
+    Fly          = false,
+    FlySpeed     = 60,
+    SpeedEnabled = false,
+    SpeedMult    = 2,
+    Fullbright   = false,
+}
+
+-- ================================================
+-- COLOURS
+-- ================================================
+
+local C = {
+    bg     = Color3.fromRGB(13,  13,  13 ),
+    panel  = Color3.fromRGB(20,  20,  20 ),
+    border = Color3.fromRGB(40,  40,  40 ),
+    muted  = Color3.fromRGB(80,  80,  80 ),
+    label  = Color3.fromRGB(145, 145, 145),
+    white  = Color3.fromRGB(255, 255, 255),
+    black  = Color3.fromRGB(0,   0,   0  ),
+    on     = Color3.fromRGB(255, 255, 255),
+    off    = Color3.fromRGB(38,  38,  38 ),
+}
+local TINFO = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- ================================================
+-- HELPERS
+-- ================================================
+
+local function make(cls, props)
+    local o = Instance.new(cls)
+    for k, v in pairs(props) do
+        if k ~= "Parent" then o[k] = v end
+    end
+    if props.Parent then o.Parent = props.Parent end
+    return o
+end
+
+local function tw(o, p)   TweenService:Create(o, TINFO, p):Play() end
+local function corner(r, p) make("UICorner", { CornerRadius = UDim.new(0, r or 4), Parent = p }) end
+local function stroke(col, th, p) make("UIStroke", { Color = col, Thickness = th or 1, Parent = p }) end
+
+-- ================================================
+-- GUI ROOT
+-- ================================================
+
+local Root = make("ScreenGui", {
+    Name           = "HXN_v4",
+    ResetOnSpawn   = false,
+    IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Global,
+    Parent         = getParent(),
+})
+
+local WIN_W, WIN_H, TITLE_H, SB_W, FOOT_H = 340, 390, 30, 68, 16
+
+local Win = make("Frame", {
+    Name             = "Window",
+    Size             = UDim2.fromOffset(WIN_W, WIN_H),
+    Position         = UDim2.new(0.5, -WIN_W/2, 0.5, -WIN_H/2),
+    BackgroundColor3 = C.bg,
+    BorderSizePixel  = 0,
+    ZIndex           = 2,
+    Parent           = Root,
+})
+corner(6, Win); stroke(C.border, 1, Win)
+
+-- ================================================
+-- TITLE BAR + DRAG
+-- ================================================
+
+local TBar = make("Frame", {
+    Size = UDim2.new(1, 0, 0, TITLE_H), BackgroundColor3 = C.panel,
+    BorderSizePixel = 0, ZIndex = 10, Parent = Win,
+})
+corner(6, TBar)
+make("Frame", {
+    Size = UDim2.new(1, 0, 0.5, 0), Position = UDim2.new(0, 0, 0.5, 0),
+    BackgroundColor3 = C.panel, BorderSizePixel = 0, ZIndex = 10, Parent = TBar,
+})
+stroke(C.border, 1, TBar)
+make("TextLabel", {
+    Size = UDim2.new(1, -70, 1, 0), Position = UDim2.new(0, 10, 0, 0),
+    BackgroundTransparency = 1, Text = "HELLSTAR  X  NOXIN   //   v4.0",
+    TextColor3 = C.white, TextSize = 10, Font = Enum.Font.Code,
+    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = TBar,
+})
+
+do
+    local drag, ds, wp = false, Vector2.zero, UDim2.new()
+    TBar.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            drag = true
+            ds   = Vector2.new(i.Position.X, i.Position.Y)
+            wp   = Win.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if drag and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local d = Vector2.new(i.Position.X, i.Position.Y) - ds
+            Win.Position = UDim2.new(wp.X.Scale, wp.X.Offset + d.X, wp.Y.Scale, wp.Y.Offset + d.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end
+    end)
+end
+
+local function headerBtn(xOff, lbl)
+    local b = make("TextButton", {
+        Size = UDim2.fromOffset(20, 20), Position = UDim2.new(1, xOff, 0.5, -10),
+        BackgroundColor3 = C.border, Text = lbl, TextColor3 = C.muted,
+        TextSize = 10, Font = Enum.Font.Code, BorderSizePixel = 0, ZIndex = 12, Parent = TBar,
+    })
+    corner(4, b); return b
+end
+
+local CloseBtn = headerBtn(-26, "X")
+local MinBtn   = headerBtn(-50, "-")
+CloseBtn.MouseButton1Click:Connect(function() Root:Destroy() end)
+
+-- ================================================
+-- BODY
+-- ================================================
+
+local Body = make("Frame", {
+    Size = UDim2.new(1, 0, 1, -TITLE_H), Position = UDim2.new(0, 0, 0, TITLE_H),
+    BackgroundColor3 = C.bg, BorderSizePixel = 0, ClipsDescendants = true,
+    ZIndex = 3, Parent = Win,
+})
+
+local mini = false
+MinBtn.MouseButton1Click:Connect(function()
+    mini = not mini
+    Body.Visible = not mini
+    Win.Size = mini and UDim2.fromOffset(WIN_W, TITLE_H) or UDim2.fromOffset(WIN_W, WIN_H)
+end)
+
+-- ================================================
+-- SIDEBAR
+-- ================================================
+
+local Sidebar = make("Frame", {
+    Size = UDim2.new(0, SB_W, 1, 0), BackgroundColor3 = C.panel,
+    BorderSizePixel = 0, ZIndex = 4, Parent = Body,
+})
+stroke(C.border, 1, Sidebar)
+make("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = Sidebar })
+make("UIPadding",    { PaddingTop = UDim.new(0, 6), Parent = Sidebar })
+
+-- ================================================
+-- SCROLL
+-- ================================================
+
+local Scroll = make("ScrollingFrame", {
+    Size = UDim2.new(1, -SB_W, 1, -FOOT_H), Position = UDim2.new(0, SB_W, 0, 0),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2,
+    ScrollBarImageColor3 = C.border, CanvasSize = UDim2.new(0,0,0,0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 5, Parent = Body,
+})
+make("UIPadding", {
+    PaddingTop = UDim.new(0,8), PaddingBottom = UDim.new(0,8),
+    PaddingLeft = UDim.new(0,10), PaddingRight = UDim.new(0,10), Parent = Scroll,
+})
+make("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,2), Parent = Scroll })
+
+-- ================================================
+-- FOOTER
+-- ================================================
+
+local Footer = make("Frame", {
+    Size = UDim2.new(1, -SB_W, 0, FOOT_H), Position = UDim2.new(0, SB_W, 1, -FOOT_H),
+    BackgroundColor3 = C.panel, BorderSizePixel = 0, ZIndex = 4, Parent = Body,
+})
+stroke(C.border, 1, Footer)
+make("TextLabel", {
+    Size = UDim2.new(1,-4,1,0), Position = UDim2.new(0,4,0,0),
+    BackgroundTransparency = 1, Text = "HELLSTAR X NOXIN  -  v4.0  |  INSERT to hide",
+    TextColor3 = C.muted, TextSize = 7, Font = Enum.Font.Code,
+    TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5, Parent = Footer,
+})
+
+-- ================================================
+-- WIDGET BUILDERS
+-- ================================================
+
+local function Section(txt, ord)
+    local f = make("Frame", {
+        Size = UDim2.new(1,0,0,22), BackgroundTransparency = 1,
+        LayoutOrder = ord, ZIndex = 6, Parent = Scroll,
+    })
+    make("TextLabel", {
+        Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = txt,
+        TextColor3 = C.muted, TextSize = 9, Font = Enum.Font.Code,
+        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = f,
+    })
+    make("Frame", {
+        Size = UDim2.new(1,0,0,1), Position = UDim2.new(0,0,1,-1),
+        BackgroundColor3 = C.border, BorderSizePixel = 0, ZIndex = 7, Parent = f,
+    })
+end
+
+local function Row(ord)
+    local r = make("Frame", {
+        Size = UDim2.new(1,0,0,26), BackgroundTransparency = 1,
+        LayoutOrder = ord, ZIndex = 6, Parent = Scroll,
+    })
+    make("Frame", {
+        Size = UDim2.new(1,0,0,1), Position = UDim2.new(0,0,1,-1),
+        BackgroundColor3 = Color3.fromRGB(22,22,22), BorderSizePixel = 0,
+        ZIndex = 6, Parent = r,
+    })
+    return r
+end
+
+local function Lbl(parent, txt)
+    make("TextLabel", {
+        Size = UDim2.new(0.54,0,1,0), Position = UDim2.new(0,6,0,0),
+        BackgroundTransparency = 1, Text = txt, TextColor3 = C.label,
+        TextSize = 10, Font = Enum.Font.Code,
+        TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 7, Parent = parent,
+    })
+end
+
+local function Dot(parent, on)
+    local d = make("Frame", {
+        Size = UDim2.fromOffset(5,5), Position = UDim2.new(0,0,0.5,-2),
+        BackgroundColor3 = on and C.on or C.off, BorderSizePixel = 0,
+        ZIndex = 7, Parent = parent,
+    })
+    corner(99, d); return d
+end
+
+local function Toggle(parent, init, cb)
+    local on = init
+    local track = make("Frame", {
+        Size = UDim2.fromOffset(30,15), Position = UDim2.new(1,-33,0.5,-7),
+        BackgroundColor3 = on and C.on or C.off, BorderSizePixel = 0, ZIndex = 8, Parent = parent,
+    })
+    corner(8, track)
+    local knob = make("Frame", {
+        Size = UDim2.fromOffset(10,10),
+        Position = on and UDim2.new(0,16,0.5,-5) or UDim2.new(0,2,0.5,-5),
+        BackgroundColor3 = on and C.black or C.muted, BorderSizePixel = 0, ZIndex = 9, Parent = track,
+    })
+    corner(99, knob)
+    local hb = make("TextButton", {
+        Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1,
+        Text = "", ZIndex = 10, Parent = track,
+    })
+    local function set(v)
+        on = v
+        tw(track, { BackgroundColor3 = v and C.on or C.off })
+        tw(knob, {
+            Position         = v and UDim2.new(0,16,0.5,-5) or UDim2.new(0,2,0.5,-5),
+            BackgroundColor3 = v and C.black or C.muted,
+        })
+        if cb then cb(v) end
+    end
+    hb.MouseButton1Click:Connect(function() set(not on) end)
+    return track, function() return on end, set
+end
+
+local function Slider(parent, mn, mx, init, suf, cb)
+    suf = suf or ""; local val = init; local W = 78
+    local holder = make("Frame", {
+        Size = UDim2.fromOffset(W+36,14), Position = UDim2.new(1,-(W+38),0.5,-7),
+        BackgroundTransparency = 1, ZIndex = 8, Parent = parent,
+    })
+    local track = make("Frame", {
+        Size = UDim2.fromOffset(W,3), Position = UDim2.new(0,0,0.5,-1),
+        BackgroundColor3 = C.off, BorderSizePixel = 0, ZIndex = 8, Parent = holder,
+    })
+    corner(2, track)
+    local fill = make("Frame", {
+        Size = UDim2.new((val-mn)/(mx-mn),0,1,0), BackgroundColor3 = C.white,
+        BorderSizePixel = 0, ZIndex = 9, Parent = track,
+    })
+    corner(2, fill)
+    local thumb = make("Frame", {
+        Size = UDim2.fromOffset(9,9),
+        Position = UDim2.new((val-mn)/(mx-mn),-4,0.5,-4),
+        BackgroundColor3 = C.white, BorderSizePixel = 0, ZIndex = 10, Parent = track,
+    })
+    corner(99, thumb)
+    local vLbl = make("TextLabel", {
+        Size = UDim2.fromOffset(34,14), Position = UDim2.new(0,W+4,0,0),
+        BackgroundTransparency = 1, Text = tostring(math.round(val))..suf,
+        TextColor3 = C.white, TextSize = 9, Font = Enum.Font.Code,
+        TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 8, Parent = holder,
+    })
+    local sliding = false
+    local hb = make("TextButton", {
+        Size = UDim2.fromOffset(W,14), BackgroundTransparency = 1,
+        Text = "", ZIndex = 11, Parent = holder,
+    })
+    local function upd(ix)
+        local rel = math.clamp((ix - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1)
+        val = math.round(mn + rel*(mx-mn))
+        fill.Size = UDim2.new(rel,0,1,0)
+        thumb.Position = UDim2.new(rel,-4,0.5,-4)
+        vLbl.Text = tostring(val)..suf
+        if cb then cb(val) end
+    end
+    hb.MouseButton1Down:Connect(function() sliding = true end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if sliding and i.UserInputType == Enum.UserInputType.MouseMovement then upd(i.Position.X) end
+    end)
+    hb.MouseButton1Click:Connect(function() upd(UserInputService:GetMouseLocation().X) end)
+end
+
+local function Dropdown(parent, opts, init, cb)
+    local cur = init or opts[1]; local open = false
+    local btn = make("TextButton", {
+        Size = UDim2.fromOffset(80,17), Position = UDim2.new(1,-83,0.5,-8),
+        BackgroundColor3 = C.panel, Text = cur, TextColor3 = C.label,
+        TextSize = 9, Font = Enum.Font.Code, BorderSizePixel = 0, ZIndex = 12, Parent = parent,
+    })
+    corner(3, btn); stroke(C.border, 1, btn)
+    local dd = make("Frame", {
+        Size = UDim2.fromOffset(80, #opts*19+4), Position = UDim2.new(1,-83,1,2),
+        BackgroundColor3 = C.panel, BorderSizePixel = 0, ZIndex = 30, Visible = false, Parent = parent,
+    })
+    corner(3, dd); stroke(C.border, 1, dd)
+    make("UIPadding",    { PaddingTop = UDim.new(0,2), PaddingBottom = UDim.new(0,2), Parent = dd })
+    make("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = dd })
+    for i, opt in ipairs(opts) do
+        local item = make("TextButton", {
+            Size = UDim2.new(1,0,0,19), BackgroundTransparency = 1, Text = opt,
+            TextColor3 = opt==cur and C.white or C.muted, TextSize = 9,
+            Font = Enum.Font.Code, LayoutOrder = i, ZIndex = 31, Parent = dd,
+        })
+        item.MouseButton1Click:Connect(function()
+            cur = opt; btn.Text = opt; dd.Visible = false; open = false
+            for _, c in ipairs(dd:GetChildren()) do
+                if c:IsA("TextButton") then c.TextColor3 = c.Text==cur and C.white or C.muted end
+            end
+            if cb then cb(opt) end
+        end)
+    end
+    btn.MouseButton1Click:Connect(function() open = not open; dd.Visible = open end)
+end
+
+local function clearScroll()
+    for _, c in ipairs(Scroll:GetChildren()) do
+        if not c:IsA("UIListLayout") and not c:IsA("UIPadding") then c:Destroy() end
+    end
+end
+
+-- ================================================
+-- SPEED HACK  — defined early so buildMisc can use it
+-- ================================================
+
+local function applySpeed()
+    local char = LocalPlayer.Character; if not char then return end
+    local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+    hum.WalkSpeed = Cfg.SpeedEnabled and (16 * Cfg.SpeedMult) or 16
+end
+
+-- ================================================
+-- FLY  — LinearVelocity + AlignOrientation (no deprecated BodyMovers)
+-- ================================================
+
+local flyConn
+local flyLV, flyAO   -- LinearVelocity, AlignOrientation
+
+local function stopFly()
+    if flyConn then flyConn:Disconnect(); flyConn = nil end
+    pcall(function() if flyLV then flyLV:Destroy(); flyLV = nil end end)
+    pcall(function() if flyAO then flyAO:Destroy(); flyAO = nil end end)
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end
+end
+
+local function startFly()
+    stopFly()
+    local char = LocalPlayer.Character; if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart"); if not hrp then return end
+    local hum  = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
+
+    hum.PlatformStand = true
+
+    -- Attachment anchor
+    local att = Instance.new("Attachment")
+    att.Name   = "FlyAtt"
+    att.Parent = hrp
+
+    -- LinearVelocity — modern physics mover
+    flyLV                     = Instance.new("LinearVelocity")
+    flyLV.Attachment0         = att
+    flyLV.MaxForce            = 1e5
+    flyLV.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+    flyLV.VectorVelocity      = Vector3.zero
+    flyLV.RelativeTo          = Enum.ActuatorRelativeTo.World
+    flyLV.Parent              = hrp
+
+    -- AlignOrientation — keeps character facing camera
+    flyAO                     = Instance.new("AlignOrientation")
+    flyAO.Attachment0         = att
+    flyAO.Mode                = Enum.OrientationAlignmentMode.OneAttachment
+    flyAO.MaxTorque           = 1e5
+    flyAO.Responsiveness      = 50
+    flyAO.RigidityEnabled     = false
+    flyAO.Parent              = hrp
+
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not Cfg.Fly then stopFly(); return end
+
+        -- re-grab hrp each frame in case char refreshed
+        local c2 = LocalPlayer.Character; if not c2 then return end
+        local h2 = c2:FindFirstChild("HumanoidRootPart"); if not h2 then return end
+
+        local cam = workspace.CurrentCamera
+        local dir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W)         then dir += cam.CFrame.LookVector          end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S)         then dir -= cam.CFrame.LookVector          end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A)         then dir -= cam.CFrame.RightVector         end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D)         then dir += cam.CFrame.RightVector         end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space)     then dir += Vector3.new(0, 1, 0)           end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir -= Vector3.new(0, 1, 0)           end
+
+        flyLV.VectorVelocity = dir.Magnitude > 0 and dir.Unit * Cfg.FlySpeed or Vector3.zero
+        flyAO.CFrame         = cam.CFrame
+    end)
+end
+
+-- ================================================
+-- NOCLIP  — correct per-step collision disable
+-- ================================================
+
+local noclipConn
+
+local function startNoclip()
+    if noclipConn then return end
+    noclipConn = RunService.Stepped:Connect(function()
+        if not Cfg.NoClip then
+            noclipConn:Disconnect(); noclipConn = nil; return
+        end
+        local char = LocalPlayer.Character; if not char then return end
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end)
+end
+
+-- ================================================
+-- PANEL BUILDERS
+-- ================================================
+
+local function buildAim()
+    local o = 0
+    Section("-- AIMBOT", o); o += 1
+
+    local r1 = Row(o); o += 1; local d1 = Dot(r1, Cfg.AimEnabled); Lbl(r1, "Enable Aimbot")
+    Toggle(r1, Cfg.AimEnabled, function(v) Cfg.AimEnabled = v; tw(d1, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r2 = Row(o); o += 1; local d2 = Dot(r2, Cfg.SilentAim); Lbl(r2, "Silent Aim")
+    Toggle(r2, Cfg.SilentAim, function(v) Cfg.SilentAim = v; tw(d2, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r3 = Row(o); o += 1; local d3 = Dot(r3, Cfg.TeamCheck); Lbl(r3, "Team Check")
+    Toggle(r3, Cfg.TeamCheck, function(v) Cfg.TeamCheck = v; tw(d3, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r4 = Row(o); o += 1; local d4 = Dot(r4, Cfg.WallCheck); Lbl(r4, "Wall Check")
+    Toggle(r4, Cfg.WallCheck, function(v) Cfg.WallCheck = v; tw(d4, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r5 = Row(o); o += 1; Lbl(r5, "Hit Part")
+    Dropdown(r5, {"Head","Neck","Body"}, Cfg.HitPart, function(v) Cfg.HitPart = v end)
+
+    Section("-- FOV", o); o += 1
+
+    local r6 = Row(o); o += 1; local d6 = Dot(r6, Cfg.FOVEnabled); Lbl(r6, "Show FOV")
+    Toggle(r6, Cfg.FOVEnabled, function(v) Cfg.FOVEnabled = v; tw(d6, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r7 = Row(o); o += 1; Lbl(r7, "FOV Radius")
+    Slider(r7, 30, 400, Cfg.FOVRadius, "", function(v) Cfg.FOVRadius = v end)
+
+    Section("-- SMOOTH", o); o += 1
+
+    local r8 = Row(o); o += 1; Lbl(r8, "Smoothing")
+    Slider(r8, 1, 50, Cfg.Smoothing, "", function(v) Cfg.Smoothing = v end)
+
+    local r9 = Row(o); o += 1; local d9 = Dot(r9, Cfg.Prediction); Lbl(r9, "Prediction")
+    Toggle(r9, Cfg.Prediction, function(v) Cfg.Prediction = v; tw(d9, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r10 = Row(o); o += 1; Lbl(r10, "Pred Amount")
+    Slider(r10, 1, 100, math.round(Cfg.PredAmt*100), "%", function(v) Cfg.PredAmt = v/100 end)
+end
+
+local function buildESP()
+    local o = 0
+    Section("-- ESP", o); o += 1
+
+    local r1 = Row(o); o += 1; local d1 = Dot(r1, Cfg.ESPEnabled); Lbl(r1, "Enable ESP")
+    Toggle(r1, Cfg.ESPEnabled, function(v) Cfg.ESPEnabled = v; tw(d1, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r2 = Row(o); o += 1; local d2 = Dot(r2, Cfg.BodyHL); Lbl(r2, "Body Highlight")
+    Toggle(r2, Cfg.BodyHL, function(v) Cfg.BodyHL = v; tw(d2, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r3 = Row(o); o += 1; Lbl(r3, "HL Color")
+    Dropdown(r3, {"White","Red","Cyan","Green","Yellow"}, "White", function(v)
+        local m = {
+            White  = Color3.fromRGB(255,255,255), Red    = Color3.fromRGB(255,50,50),
+            Cyan   = Color3.fromRGB(0,220,220),   Green  = Color3.fromRGB(50,255,50),
+            Yellow = Color3.fromRGB(255,220,0),
+        }
+        Cfg.HLColor = m[v]
+    end)
+
+    local r4 = Row(o); o += 1; Lbl(r4, "HL Opacity")
+    Slider(r4, 0, 100, 50, "%", function(v) Cfg.HLOpacity = v/100 end)
+
+    local r5 = Row(o); o += 1; local d5 = Dot(r5, Cfg.ShowTeam); Lbl(r5, "Show Teammates")
+    Toggle(r5, Cfg.ShowTeam, function(v) Cfg.ShowTeam = v; tw(d5, {BackgroundColor3 = v and C.on or C.off}) end)
+
+    local r6 = Row(o); o += 1; Lbl(r6, "Max Distance")
+    Slider(r6, 50, 2000, Cfg.MaxDist, "m", function(v) Cfg.MaxDist = v end)
+end
+
+local function buildMisc()
+    local o = 0
+    Section("-- MOVEMENT", o); o += 1
+
+    local r1 = Row(o); o += 1; local d1 = Dot(r1, Cfg.NoClip); Lbl(r1, "No Clip")
+    Toggle(r1, Cfg.NoClip, function(v)
+        Cfg.NoClip = v
+        tw(d1, {BackgroundColor3 = v and C.on or C.off})
+        if v then startNoclip() end
+    end)
+
+    local r2 = Row(o); o += 1; local d2 = Dot(r2, Cfg.Fly); Lbl(r2, "Fly")
+    Toggle(r2, Cfg.Fly, function(v)
+        Cfg.Fly = v
+        tw(d2, {BackgroundColor3 = v and C.on or C.off})
+        if v then startFly() else stopFly() end
+    end)
+
+    local r3 = Row(o); o += 1; Lbl(r3, "Fly Speed")
+    Slider(r3, 10, 300, Cfg.FlySpeed, "", function(v) Cfg.FlySpeed = v end)
+
+    local r4 = Row(o); o += 1; local d4 = Dot(r4, Cfg.SpeedEnabled); Lbl(r4, "Speed Hack")
+    Toggle(r4, Cfg.SpeedEnabled, function(v)
+        Cfg.SpeedEnabled = v
+        tw(d4, {BackgroundColor3 = v and C.on or C.off})
+        applySpeed()
+    end)
+
+    local r5 = Row(o); o += 1; Lbl(r5, "Speed Mult")
+    Slider(r5, 1, 20, Cfg.SpeedMult, "x", function(v) Cfg.SpeedMult = v; applySpeed() end)
+
+    Section("-- VISUAL", o); o += 1
+
+    local r6 = Row(o); o += 1; local d6 = Dot(r6, Cfg.Fullbright); Lbl(r6, "Fullbright")
+    Toggle(r6, Cfg.Fullbright, function(v)
+        Cfg.Fullbright = v
+        tw(d6, {BackgroundColor3 = v and C.on or C.off})
+        Lighting.Brightness     = v and 10  or 1
+        Lighting.FogEnd         = v and 1e6 or 1e4
+        Lighting.GlobalShadows  = not v
+        Lighting.Ambient        = v and Color3.fromRGB(255,255,255) or Color3.fromRGB(70,70,70)
+        Lighting.OutdoorAmbient = v and Color3.fromRGB(255,255,255) or Color3.fromRGB(127,127,127)
+    end)
+end
+
+-- ================================================
+-- TAB SYSTEM
+-- ================================================
+
+local TABS = {
+    { lbl = "AIM",  key = "aim",  fn = buildAim  },
+    { lbl = "ESP",  key = "esp",  fn = buildESP  },
+    { lbl = "MISC", key = "misc", fn = buildMisc },
+}
+local tabBtns   = {}
+local activeTab = "aim"
+
+local function switchTab(key)
+    if activeTab == key then return end
+    activeTab = key
+    clearScroll()
+    for _, t in ipairs(TABS) do
+        local b  = tabBtns[t.key]; if not b then continue end
+        local on = t.key == key
+        tw(b, { BackgroundColor3 = on and C.border or Color3.fromRGB(0,0,0), TextColor3 = on and C.white or C.muted })
+        if b:FindFirstChild("Bar") then b.Bar.Visible = on end
+        if on then t.fn() end
+    end
+end
+
+for i, t in ipairs(TABS) do
+    local b = make("TextButton", {
+        Name = t.key, Size = UDim2.new(1,0,0,44),
+        BackgroundColor3 = i==1 and C.border or Color3.fromRGB(0,0,0),
+        Text = t.lbl, TextColor3 = i==1 and C.white or C.muted,
+        TextSize = 9, Font = Enum.Font.Code, BorderSizePixel = 0,
+        LayoutOrder = i, ZIndex = 5, Parent = Sidebar,
+    })
+    make("Frame", {
+        Name = "Bar", Size = UDim2.new(0,2,0.45,0), Position = UDim2.new(1,-2,0.275,0),
+        BackgroundColor3 = C.white, BorderSizePixel = 0, Visible = i==1, ZIndex = 6, Parent = b,
+    })
+    tabBtns[t.key] = b
+    b.MouseButton1Click:Connect(function() switchTab(t.key) end)
+end
+
+-- ================================================
+-- AIMBOT — target finder  (FIXED hit part lookup)
+-- ================================================
+
+local HIT_PARTS = {
+    Head = {"Head"},
+    Neck = {"UpperTorso", "Torso"},
+    Body = {"HumanoidRootPart", "UpperTorso", "Torso"},
+}
+
+local function getBestTarget()
+    local cam    = workspace.CurrentCamera
+    local best   = Cfg.FOVRadius
+    local found  = nil
+    local vp     = cam.ViewportSize
+    local cx, cy = vp.X / 2, vp.Y / 2
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+        if Cfg.TeamCheck and plr.Team == LocalPlayer.Team then continue end
+
+        local char = plr.Character; if not char then continue end
+        local hum  = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+
+        -- resolve hit part with fallback chain
+        local part
+        for _, name in ipairs(HIT_PARTS[Cfg.HitPart] or HIT_PARTS.Head) do
+            part = char:FindFirstChild(name)
+            if part then break end
+        end
+        if not part then part = char:FindFirstChild("HumanoidRootPart") end
+        if not part then continue end
+
+        -- wall check — exclude entire local character from ray
+        if Cfg.WallCheck then
+            local rp = RaycastParams.new()
+            rp.FilterDescendantsInstances = {LocalPlayer.Character or game.Workspace}
+            rp.FilterType = Enum.RaycastFilterType.Exclude
+            local origin = cam.CFrame.Position
+            local dir    = part.Position - origin
+            local res    = workspace:Raycast(origin, dir, rp)
+            if res and not res.Instance:IsDescendantOf(char) then continue end
+        end
+
+        local sp, vis = cam:WorldToViewportPoint(part.Position)
+        if not vis then continue end
+
+        local dist = math.sqrt((sp.X - cx)^2 + (sp.Y - cy)^2)
+        if dist < best then best = dist; found = part end
+    end
+    return found
+end
+
+-- ================================================
+-- SILENT AIM — hook workspace.Raycast safely
+-- ================================================
+
+local silentPart = nil
+
+-- Only hook if the executor exposes the raw method; skip if already hooked
+if not workspace._HXN_hooked then
+    workspace._HXN_hooked = true
+    local _orig = workspace.Raycast
+    workspace.Raycast = function(ws, origin, direction, params, ...)
+        if Cfg.SilentAim and silentPart and silentPart.Parent then
+            direction = (silentPart.Position - origin).Unit * direction.Magnitude
+        end
+        return _orig(ws, origin, direction, params, ...)
+    end
+end
+
+-- ================================================
+-- FOV CIRCLE
+-- ================================================
+
+local fovDraw = nil
+pcall(function()
+    fovDraw           = Drawing.new("Circle")
+    fovDraw.Visible   = false
+    fovDraw.Color     = Color3.fromRGB(255, 255, 255)
+    fovDraw.Thickness = 1
+    fovDraw.Filled    = false
+    fovDraw.NumSides  = 64
+end)
+
+-- ================================================
+-- AIMBOT RENDER LOOP  (FIXED: camera CFrame write)
+-- ================================================
+
+RunService.RenderStepped:Connect(function(dt)
+    local cam = workspace.CurrentCamera
+
+    -- update silent aim target every frame
+    silentPart = (Cfg.SilentAim or Cfg.AimEnabled) and getBestTarget() or nil
+
+    -- FOV circle
+    if fovDraw then
+        fovDraw.Visible  = Cfg.AimEnabled and Cfg.FOVEnabled
+        fovDraw.Radius   = Cfg.FOVRadius
+        fovDraw.Position = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    end
+
+    if not Cfg.AimEnabled then return end
+    if not UserInputService:IsMouseButtonPressed(Cfg.MouseBind) then return end
+
+    local part = getBestTarget()   -- fresh call for aimbot (not shared with silent)
+    if not part or not part.Parent then return end
+
+    local targetPos = part.Position
+
+    -- velocity prediction
+    if Cfg.Prediction then
+        local vel = part.AssemblyLinearVelocity
+        if vel then
+            targetPos = targetPos + vel * (Cfg.PredAmt * dt * 60)
+        end
+    end
+
+    local _, vis = cam:WorldToViewportPoint(targetPos)
+    if not vis then return end
+
+    -- smooth lerp toward target — clamp smoothing so 1 = instant
+    local alpha  = math.clamp(1 / math.max(1, Cfg.Smoothing), 0.01, 1)
+    local lookAt = CFrame.lookAt(cam.CFrame.Position, targetPos)
+    cam.CFrame   = cam.CFrame:Lerp(lookAt, alpha)
+end)
+
+-- ================================================
+-- ESP RENDER LOOP  (FIXED: team check nil guard)
+-- ================================================
+
+local hlCache = {}
+
+local function removeHL(plr)
+    if hlCache[plr] then
+        pcall(function() hlCache[plr]:Destroy() end)
+        hlCache[plr] = nil
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    local cam   = workspace.CurrentCamera
+    local myTeam = LocalPlayer.Team  -- can be nil in teamless games
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+
+        if not Cfg.ESPEnabled then removeHL(plr); continue end
+
+        -- team check: only skip teammates when ShowTeam is off AND teams exist
+        if not Cfg.ShowTeam and myTeam and plr.Team == myTeam then
+            removeHL(plr); continue
+        end
+
+        local char = plr.Character
+        if not char then removeHL(plr); continue end
+
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then removeHL(plr); continue end
+
+        if (cam.CFrame.Position - root.Position).Magnitude > Cfg.MaxDist then
+            removeHL(plr); continue
+        end
+
+        if Cfg.BodyHL then
+            local hl = hlCache[plr]
+            if not hl or not hl.Parent then
+                hl = Instance.new("Highlight")
+                hl.Parent    = char
+                hlCache[plr] = hl
+            end
+            hl.Adornee             = char
+            hl.FillColor           = Cfg.HLColor
+            hl.FillTransparency    = 1 - Cfg.HLOpacity
+            hl.OutlineColor        = Cfg.HLColor
+            hl.OutlineTransparency = 0
+        else
+            removeHL(plr)
+        end
+    end
+end)
+
+Players.PlayerRemoving:Connect(removeHL)
+
+-- ================================================
+-- RESPAWN PERSIST
+-- ================================================
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    applySpeed()
+    if Cfg.Fly     then startFly()     end
+    if Cfg.NoClip  then startNoclip()  end
+end)
+
+-- ================================================
+-- INSERT TOGGLE
+-- ================================================
+
+UserInputService.InputBegan:Connect(function(i, gpe)
+    if gpe then return end
+    if i.KeyCode == Enum.KeyCode.Insert then
+        Win.Visible = not Win.Visible
+    end
+end)
